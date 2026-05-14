@@ -396,18 +396,56 @@ async def run_paper_mode(show_dashboard: bool = False) -> None:
     )
     tasks.append(ws_task)
 
-    # Main monitoring loop
+    # Import mode handlers (lazy — avoids circular imports at module load time)
+    from src.handlers import (
+        active_trading as h_active,
+        position_mgmt as h_position,
+        eod_reflect as h_eod,
+        overnight_intel as h_overnight,
+        pre_market_prep as h_premarket,
+        weekend_deep_work as h_weekend,
+        maintenance as h_maintenance,
+    )
+    from src.engine.state import Mode
+
+    _HANDLER_MAP = {
+        Mode.ACTIVE_TRADING:    h_active,
+        Mode.POSITION_MGMT:     h_position,
+        Mode.EOD_REFLECT:       h_eod,
+        Mode.OVERNIGHT_INTEL:   h_overnight,
+        Mode.PRE_MARKET_PREP:   h_premarket,
+        Mode.WEEKEND_DEEP_WORK: h_weekend,
+        Mode.MAINTENANCE:       h_maintenance,
+    }
+
+    _prev_mode: Optional[Mode] = None
     eod_fired = False
     try:
         while not _state.ws_stop.is_set():
             await asyncio.sleep(5)
             now = _now_et()
 
-            # Shadow-mode: log current operating mode every tick (no enforcement yet)
-            mode = current_mode(now=now)
+            # Determine current operating mode
+            maintenance_active = settings.KILL_SWITCH_FILE and \
+                __import__("pathlib").Path(settings.KILL_SWITCH_FILE).exists()
+            mode = current_mode(now=now, maintenance_active=bool(maintenance_active))
             log.info("current_mode", mode=mode.value)
 
-            # Force close at 15:55
+            # On mode transition, call on_enter() if the handler defines it
+            if mode is not _prev_mode:
+                log.info("mode_transition", previous=(_prev_mode.value if _prev_mode else None),
+                         current=mode.value)
+                handler = _HANDLER_MAP.get(mode)
+                if handler and hasattr(handler, "on_enter"):
+                    await handler.on_enter(_state)
+                _prev_mode = mode
+
+            # Dispatch to current-mode handler tick()
+            handler = _HANDLER_MAP.get(mode)
+            if handler and hasattr(handler, "tick"):
+                await handler.tick(_state, now)
+
+            # Force close at 15:55 (handled here regardless of mode)
             if _after_force_close(now) and not eod_fired:
                 log.warning("Force-close time reached (15:55 ET)")
                 from src.execution.paper import emergency_close_all
