@@ -53,6 +53,64 @@ uv run pytest
 | Paper | `uv run python -m src.main --mode=paper` | Paper trading via Alpaca |
 | Backtest | `uv run python scripts/backtest.py --start=YYYY-MM-DD --end=YYYY-MM-DD` | Historical replay |
 
+## VPS deploy (Hetzner / fresh server)
+
+One command sets up both systemd services, UFW, sudoers, and the state directory:
+
+```bash
+# 1. Clone repo
+git clone https://github.com/elmeremanuels/BawsTrad.git
+cd BawsTrad
+
+# 2. Create .env with API keys (see Configure secrets above)
+cp .env.example .env
+chmod 600 .env
+nano .env   # fill in keys
+
+# 3. Run setup script (as root or sudo)
+sudo bash deploy/setup.sh
+```
+
+The script installs:
+- `trading-bot.service` — the bot (enabled, **not auto-started** until you verify `.env`)
+- `trading-dashboard.service` — Streamlit UI on port 8501 (auto-started)
+- `/etc/sudoers.d/trading-bot-control` — lets the dashboard restart/stop/start the bot
+- `state/` — pause flags, audit log
+
+After setup:
+```bash
+# Verify .env is complete, then start the bot
+sudo systemctl start trading-bot
+sudo journalctl -u trading-bot -n 50 --no-pager
+
+# Dashboard (Tailscale VPN required)
+# http://<tailscale-ip>:8501
+```
+
+### Service files in the repo
+
+| File | Purpose |
+|---|---|
+| `deploy/trading-bot.service` | Bot process (`uv run python -m src.main --mode=paper`) |
+| `deploy/trading-dashboard.service` | Streamlit dashboard on port 8501 |
+| `deploy/setup.sh` | Installs both services + UFW + sudoers |
+
+### Useful commands
+
+```bash
+# Bot
+sudo systemctl status trading-bot
+sudo journalctl -u trading-bot -f        # live log tail
+sudo systemctl restart trading-bot
+
+# Dashboard
+sudo systemctl status trading-dashboard
+sudo journalctl -u trading-dashboard -f
+
+# Kill switch (immediate position close + exit)
+touch /tmp/bot_killswitch
+```
+
 ## Kill switch
 
 To stop the bot immediately from any terminal (including SSH):
@@ -92,4 +150,8 @@ src/
 scripts/
   seed_db.py       — initialise SQLite schema
   backtest.py      — run strategy on historical data (Phase 1)
+deploy/
+  setup.sh                  — one-command VPS setup (bot + dashboard)
+  trading-bot.service       — systemd unit for the bot
+  trading-dashboard.service — systemd unit for the dashboard
 ```
