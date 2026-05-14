@@ -47,3 +47,29 @@ dashboard:
 logging:
   level: INFO  # overridden by LOG_LEVEL env var
   file: logs/bot.log
+
+state_machine:
+  enabled: true                    # Set false to run in shadow-mode (log only, no enforcement)
+  pre_market_start: "04:00"        # ET — enter PRE_MARKET_PREP
+  active_trading_start: "09:30"    # ET — enter ACTIVE_TRADING
+  position_mgmt_start: "11:30"     # ET — enter POSITION_MGMT (no new entries)
+  eod_reflect_start:  "16:00"      # ET — enter EOD_REFLECT (approximate; uses actual close)
+  overnight_intel_start: "20:00"   # ET — enter OVERNIGHT_INTEL
+  stale_position_alert_hours: 4    # Warn if a position is open longer than this
+  sweep_hours: [20, 22, 2]         # ET hours for overnight news sweeps
+  pre_market_tasks:
+    news_ingest:         "04:00"
+    watchlist_rank:      "06:00"
+    learnings_review:    "07:30"
+    perplexity_briefing: "08:30"
+    discord_briefing:    "08:45"
+    pre_exec_check:      "09:00"
+    t5_alert:            "09:25"
+  eod_tasks:
+    eod_learning:  "16:15"
+    eow_learning:  "17:00"   # Fridays only
+    eom_learning:  "17:30"   # Last trading day of month only
+  weekend_tasks:             # Saturday ET times
+    backtest_recent:  "09:00"
+    weekly_learning:  "10:00"
+    discord_summary:  "11:00"
