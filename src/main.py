@@ -23,6 +23,7 @@ import yaml
 
 from src.alerts.discord import post_message
 from src.config import settings
+from src.engine.state import current_mode
 from src.kill_switch import register_shutdown, watch_kill_switch
 from src.logging_setup import configure_logging
 from src.storage.db import get_connection, init_schema
@@ -401,6 +402,10 @@ async def run_paper_mode(show_dashboard: bool = False) -> None:
         while not _state.ws_stop.is_set():
             await asyncio.sleep(5)
             now = _now_et()
+
+            # Shadow-mode: log current operating mode every tick (no enforcement yet)
+            mode = current_mode(now=now)
+            log.info("current_mode", mode=mode.value)
 
             # Force close at 15:55
             if _after_force_close(now) and not eod_fired:
