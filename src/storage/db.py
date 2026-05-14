@@ -131,10 +131,35 @@ def init_schema() -> None:
             summary_md  TEXT
         );
 
-        CREATE INDEX IF NOT EXISTS idx_trades_ticker     ON trades(ticker);
-        CREATE INDEX IF NOT EXISTS idx_trades_opened_at  ON trades(opened_at);
-        CREATE INDEX IF NOT EXISTS idx_news_ticker       ON news_items(ticker);
-        CREATE INDEX IF NOT EXISTS idx_scan_ticker       ON scan_results(ticker);
-        CREATE INDEX IF NOT EXISTS idx_bars_ticker_time  ON price_bars(ticker, bar_time, timeframe);
+        CREATE TABLE IF NOT EXISTS overnight_intel (
+            id              TEXT PRIMARY KEY,
+            fetched_at      TEXT NOT NULL,
+            ticker          TEXT NOT NULL,
+            headline        TEXT NOT NULL,
+            source          TEXT,
+            published_at    TEXT,
+            summary         TEXT,
+            tier            TEXT,
+            category        TEXT,
+            sentiment       REAL,
+            used_in_briefing INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS mode_durations (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            date        TEXT NOT NULL,
+            mode        TEXT NOT NULL,
+            entered_at  TEXT NOT NULL,
+            exited_at   TEXT,
+            duration_s  REAL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_trades_ticker        ON trades(ticker);
+        CREATE INDEX IF NOT EXISTS idx_trades_opened_at     ON trades(opened_at);
+        CREATE INDEX IF NOT EXISTS idx_news_ticker          ON news_items(ticker);
+        CREATE INDEX IF NOT EXISTS idx_scan_ticker          ON scan_results(ticker);
+        CREATE INDEX IF NOT EXISTS idx_bars_ticker_time     ON price_bars(ticker, bar_time, timeframe);
+        CREATE INDEX IF NOT EXISTS idx_overnight_ticker     ON overnight_intel(ticker);
+        CREATE INDEX IF NOT EXISTS idx_overnight_fetched_at ON overnight_intel(fetched_at);
         """)
     print(f"Schema initialised at {DB_PATH}")
