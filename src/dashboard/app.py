@@ -2,23 +2,24 @@ from __future__ import annotations
 
 """
 Read-only dashboard — FastAPI + Jinja2 + HTMX.
-Runs on localhost:8080. No auth needed (local only).
+Runs on localhost:8080. Protected by HTTP Basic Auth.
 HARD RULE: no buttons that place orders or affect bot state.
-
-Total file: well under 150 lines.
 """
 
+import secrets
 import threading
 from datetime import date
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request, status
 from fastapi.responses import HTMLResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.exceptions import HTTPException
 
+from src.config import settings
 from src.storage.db import get_connection
 
 BASE = Path(__file__).parent
@@ -26,6 +27,29 @@ app = FastAPI(docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 templates = Jinja2Templates(directory=str(BASE / "templates"))
 
+_security = HTTPBasic()
+
+
+def _require_auth(credentials: HTTPBasicCredentials = Depends(_security)) -> None:
+    """
+    Constant-time comparison to prevent timing attacks.
+    Raises 401 if username or password is wrong.
+    """
+    correct_user = secrets.compare_digest(
+        credentials.username.encode(), settings.DASHBOARD_USERNAME.encode()
+    )
+    correct_pass = secrets.compare_digest(
+        credentials.password.encode(), settings.DASHBOARD_PASSWORD.encode()
+    )
+    if not (correct_user and correct_pass):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect credentials",
+            headers={"WWW-Authenticate": "Basic realm='BawsTrad Dashboard'"},
+        )
+
+
+# ── DB helpers ────────────────────────────────────────────────────────────────
 
 def _trades_today() -> list:
     today = date.today().isoformat()
@@ -74,8 +98,10 @@ def _watchlist() -> list:
     return [dict(r) for r in rows]
 
 
+# ── Pages (all require auth) ──────────────────────────────────────────────────
+
 @app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
+async def index(request: Request, _: None = Depends(_require_auth)):
     trades = _trades_today()
     total_pnl = sum(t["pnl_dollars"] or 0 for t in trades if t["pnl_dollars"])
     wins = sum(1 for t in trades if (t["pnl_dollars"] or 0) > 0)
@@ -92,34 +118,34 @@ async def index(request: Request):
 
 
 @app.get("/trades", response_class=HTMLResponse)
-async def trades_page(request: Request):
+async def trades_page(request: Request, _: None = Depends(_require_auth)):
     trades = _trades_today()
     return templates.TemplateResponse("trades.html", {"request": request, "trades": trades})
 
 
 @app.get("/watchlist", response_class=HTMLResponse)
-async def watchlist_page(request: Request):
+async def watchlist_page(request: Request, _: None = Depends(_require_auth)):
     return templates.TemplateResponse("watchlist.html", {
         "request": request, "watchlist": _watchlist()
     })
 
 
-# ── Partial endpoints for HTMX polling ───────────────────────────────────────
+# ── HTMX partials (all require auth) ─────────────────────────────────────────
 
 @app.get("/partials/watchlist", response_class=HTMLResponse)
-async def partial_watchlist(request: Request):
+async def partial_watchlist(request: Request, _: None = Depends(_require_auth)):
     return templates.TemplateResponse("partials/watchlist.html",
                                       {"request": request, "watchlist": _watchlist()})
 
 
 @app.get("/partials/positions", response_class=HTMLResponse)
-async def partial_positions(request: Request):
+async def partial_positions(request: Request, _: None = Depends(_require_auth)):
     return templates.TemplateResponse("partials/positions.html",
                                       {"request": request, "positions": _open_positions()})
 
 
 @app.get("/partials/trades", response_class=HTMLResponse)
-async def partial_trades(request: Request):
+async def partial_trades(request: Request, _: None = Depends(_require_auth)):
     trades = _trades_today()
     total_pnl = sum(t["pnl_dollars"] or 0 for t in trades if t["pnl_dollars"])
     return templates.TemplateResponse("partials/trades.html",
@@ -127,10 +153,12 @@ async def partial_trades(request: Request):
 
 
 @app.get("/partials/logs", response_class=HTMLResponse)
-async def partial_logs(request: Request):
+async def partial_logs(request: Request, _: None = Depends(_require_auth)):
     return templates.TemplateResponse("partials/logs.html",
                                       {"request": request, "logs": _recent_logs()})
 
+
+# ── Server ────────────────────────────────────────────────────────────────────
 
 def start_dashboard(host: str = "127.0.0.1", port: int = 8080) -> None:
     """Launch dashboard in a background daemon thread."""

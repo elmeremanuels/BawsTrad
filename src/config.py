@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     PERPLEXITY_API_KEY: str = ""
     DISCORD_WEBHOOK_URL: str = ""
 
+    # === Dashboard auth ===
+    DASHBOARD_USERNAME: str = "bawstrad"
+    DASHBOARD_PASSWORD: str = "Tr4d-B@ws-K9#mX"
+
     # === Runtime ===
     TRADING_MODE: Literal["paper", "live", "backtest", "test"] = "paper"
     LOG_LEVEL: str = "INFO"
