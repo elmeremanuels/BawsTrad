@@ -11,3 +11,6 @@ dist/
 .DS_Store
 bot.db-shm
 bot.db-wal
+state/*.flag
+state/*.txt
+state/*.json
