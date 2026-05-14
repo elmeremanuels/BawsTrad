@@ -7,6 +7,7 @@ requires-python = ">=3.9"
 dependencies = [
     "anthropic>=0.102.0",
     "apscheduler>=3.11.2",
+    "exchange-calendars>=4.5.6",
     "fastapi>=0.128.8",
     "groq>=1.0.0",
     "httpx>=0.28.1",
