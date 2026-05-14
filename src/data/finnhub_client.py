@@ -48,14 +48,15 @@ def get_company_news(ticker: str, from_date: date, to_date: date) -> List[RawNew
 
     _rate_limit()
     try:
+        # Key goes in header (X-Finnhub-Token) not URL param — keeps it out of logs
         r = httpx.get(
             f"{BASE_URL}/company-news",
             params={
                 "symbol": ticker,
                 "from": from_date.isoformat(),
                 "to": to_date.isoformat(),
-                "token": settings.FINNHUB_API_KEY,
             },
+            headers={"X-Finnhub-Token": settings.FINNHUB_API_KEY},
             timeout=15.0,
         )
         r.raise_for_status()

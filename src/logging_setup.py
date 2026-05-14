@@ -59,3 +59,8 @@ def configure_logging(log_level: str = "INFO", log_file: str = "logs/bot.log") -
 
     file_handler.setFormatter(file_formatter)
     console_handler.setFormatter(console_formatter)
+
+    # Silence noisy third-party loggers that can leak URLs with embedded API keys
+    for noisy in ("httpx", "httpcore", "websockets.client", "websockets.server",
+                  "uvicorn.access", "uvicorn.error"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
