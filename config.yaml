@@ -14,6 +14,8 @@ scanner:
   gap_and_go_gap_preferred: 20.0
   gap_and_go_float_max: 50_000_000
   scan_interval_sec: 30
+  scanner_stop_hour: 10        # ET — stop pre-market scanner at this hour (was 9:35)
+  require_news_catalyst: true  # Set false to allow trades without Tier A/B news (fallback)
 
 trading:
   mode: paper  # paper | live | backtest (overridden by TRADING_MODE env var)

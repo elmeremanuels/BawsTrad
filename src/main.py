@@ -127,7 +127,7 @@ async def run_test_mode() -> None:
 # ─── Pre-market scanner ───────────────────────────────────────────────────────
 
 async def run_premarket_scanner(universe_tickers: List[str]) -> None:
-    """Poll Alpaca snapshots every 30s to build watchlist before 09:30."""
+    """Poll Alpaca snapshots every 30s to build watchlist until 10:00 ET."""
     from src.data.alpaca_client import get_snapshots
     from src.scanner.criteria import NewsCatalyst, TickerSnapshot, passes_stock_selection, quality_score
     from src.news.ingest import ingest_news_for_ticker, get_best_catalyst_today
@@ -137,28 +137,40 @@ async def run_premarket_scanner(universe_tickers: List[str]) -> None:
     log = structlog.get_logger("scanner")
     log.info("Pre-market scanner started (%d tickers)", len(universe_tickers))
 
+    # Track which tickers have already had news fetched this session
+    # to avoid hammering Finnhub on every 30s cycle
+    _news_fetched: set = set()
+
     while not _state.ws_stop.is_set():
         now = _now_et()
-        if (now.hour, now.minute) >= (9, 35):  # Stop 5min after open
+        if (now.hour, now.minute) >= (10, 0):  # Run until 10:00 ET (was 09:35)
             break
 
         try:
             snaps = get_snapshots(universe_tickers)
             candidates = []
+            all_scores = []  # Track all scores for diagnostics
 
             for ticker, snap in snaps.items():
                 prev_close = (snap.get("prevDailyBar") or {}).get("c", 0)
                 daily = snap.get("dailyBar") or {}
                 price = daily.get("c") or daily.get("o") or 0
-                vol = daily.get("v") or 0
 
                 if prev_close <= 0 or price <= 0:
                     continue
 
                 gap_pct = (price - prev_close) / prev_close * 100.0
 
-                # News (once per ticker per day via Finnhub)
-                ingest_news_for_ticker(ticker)
+                # News — fetch once per ticker per session (Finnhub rate limit)
+                # If fetch fails, fall back to any catalyst already in DB
+                if ticker not in _news_fetched:
+                    try:
+                        ingest_news_for_ticker(ticker)
+                        _news_fetched.add(ticker)
+                    except Exception as exc:
+                        log.debug("scanner: news fetch skipped", ticker=ticker, error=str(exc))
+                        _news_fetched.add(ticker)  # Don't retry failed tickers this cycle
+
                 best = get_best_catalyst_today(ticker)
                 catalyst = None
                 if best:
@@ -168,7 +180,6 @@ async def run_premarket_scanner(universe_tickers: List[str]) -> None:
                         headline=best["headline"],
                     )
 
-                # Float from CSV (loaded once at startup)
                 float_shares = _state._float_map.get(ticker, 15_000_000)
 
                 s = TickerSnapshot(
@@ -180,11 +191,23 @@ async def run_premarket_scanner(universe_tickers: List[str]) -> None:
                     news_catalyst=catalyst,
                 )
 
+                # Log why tickers are rejected (debug only)
+                price_ok = 1.00 <= price <= 20.00
+                gap_ok   = gap_pct >= 10.0
+                cat_ok   = catalyst is not None and catalyst.tier in ("A", "B")
+                float_ok = float_shares < 20_000_000
+
+                if price_ok and gap_ok and float_ok and not cat_ok:
+                    # Promising ticker blocked only by missing news — log it
+                    log.info("scanner: gap mover without catalyst",
+                             ticker=ticker, gap_pct=round(gap_pct, 1),
+                             price=round(price, 2), catalyst=str(catalyst))
+
                 if passes_stock_selection(s):
                     score = quality_score(s)
                     candidates.append((score, s))
+                    all_scores.append((ticker, score))
 
-                    # Store scan result
                     with get_connection() as conn:
                         conn.execute("""
                             INSERT OR IGNORE INTO scan_results
@@ -197,7 +220,18 @@ async def run_premarket_scanner(universe_tickers: List[str]) -> None:
 
             candidates.sort(reverse=True)
             _state.watchlist = [s for _, s in candidates[:5]]
-            log.info("Watchlist: %s", [s.ticker for s in _state.watchlist])
+
+            # Always log watchlist + how many tickers had a gap
+            gappers = [(t, snap) for t, snap in snaps.items()
+                       if (snap.get("dailyBar") or {}).get("c", 0) > 0
+                       and (snap.get("prevDailyBar") or {}).get("c", 0) > 0
+                       and ((snap.get("dailyBar") or {}).get("c", 0) /
+                            (snap.get("prevDailyBar") or {}).get("c", 1) - 1) * 100 >= 5.0]
+            log.info("scanner: cycle complete",
+                     universe=len(snaps),
+                     gappers_5pct=len(gappers),
+                     passed_filter=len(candidates),
+                     watchlist=[s.ticker for s in _state.watchlist])
 
         except Exception as exc:
             log.error("Scanner error: %s", exc)
