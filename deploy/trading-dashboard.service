@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 User=trader
 Group=trader
-WorkingDirectory=/home/trader/BawsTrad/trading-bot
+WorkingDirectory=/home/trader/BawsTrad
 Environment="PATH=/home/trader/.local/bin:/usr/bin:/bin"
 ExecStart=/home/trader/.local/bin/uv run streamlit run src/dashboard/app.py \
     --server.address 0.0.0.0 \

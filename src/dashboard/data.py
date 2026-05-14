@@ -20,6 +20,12 @@ import streamlit as st
 ET = ZoneInfo("America/New_York")
 
 
+def _bot_service_name() -> str:
+    """Systemd service name for the trading bot. Configurable via env var."""
+    import os
+    return os.getenv("BOT_SERVICE_NAME", "trading-bot")
+
+
 def _db_path() -> Path:
     """Resolve bot.db path: BOT_DB_PATH env > project root auto-detect."""
     import os
@@ -271,7 +277,7 @@ def get_bot_status() -> dict:
     systemd_status = "unknown"
     try:
         result = subprocess.run(
-            ["systemctl", "is-active", "trading-bot"],
+            ["systemctl", "is-active", _bot_service_name()],
             capture_output=True, text=True, timeout=3
         )
         systemd_status = result.stdout.strip()  # active | inactive | failed | unknown
@@ -387,7 +393,7 @@ def switch_trading_mode(new_mode: str) -> bool:
 
     try:
         subprocess.run(
-            ["sudo", "systemctl", "restart", "trading-bot"],
+            ["sudo", "systemctl", "restart", _bot_service_name()],
             check=True, timeout=10
         )
         log_dashboard_action("mode_switch", {"new_mode": new_mode})
