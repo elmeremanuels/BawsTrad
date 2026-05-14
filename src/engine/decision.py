@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 
 from src.engine.risk import RISK_RULES, RiskState, check_daily_limits, passes_rr_check
 from src.engine.position import calculate_position_size
+from src.engine.state import Mode, current_mode
 from src.patterns.detector import PatternSignal
 from src.scanner.criteria import TickerSnapshot
 
@@ -52,6 +53,14 @@ def evaluate_entry(
     entry = fill_price if fill_price is not None else signal.entry_trigger
     stop = signal.stop_price
     now_et = now.astimezone(ET)
+
+    # ── 0. Operating mode guard ────────────────────────────────────────────
+    # New entries are only allowed in ACTIVE_TRADING mode.
+    # All other modes (POSITION_MGMT, EOD_REFLECT, PRE_MARKET_PREP, etc.)
+    # must not open new positions — this is a hard gate, not an advisory.
+    mode = current_mode(now=now_et)
+    if mode is not Mode.ACTIVE_TRADING:
+        return EntryDecision(False, f"mode_not_active_trading:{mode.value}")
 
     # ── 1. Trading window ───────────────────────────────────────────────────
     day_base = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
