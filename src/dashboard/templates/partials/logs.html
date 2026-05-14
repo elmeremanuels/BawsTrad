@@ -1,0 +1,10 @@
+<section>
+  <h2>📋 Recent Events</h2>
+  {% if logs %}
+  <ul class="log-list">
+    {% for l in logs %}
+    <li><code>{{ l.occurred_at[:19] }}</code> <b>{{ l.event_type }}</b> {{ l.message or '' }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="empty">No events yet.</p>{% endif %}
+</section>

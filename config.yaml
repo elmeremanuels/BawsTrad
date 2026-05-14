@@ -1,0 +1,49 @@
+# Non-sensitive config — committed to git
+# Secrets go in .env (gitignored)
+
+scanner:
+  price_min: 1.00
+  price_max: 20.00
+  price_preferred_min: 5.00
+  price_preferred_max: 10.00
+  gap_percent_min: 10.0
+  relative_volume_min: 5.0
+  float_max: 20_000_000
+  float_preferred_max: 5_000_000
+  gap_and_go_gap_min: 5.0
+  gap_and_go_gap_preferred: 20.0
+  gap_and_go_float_max: 50_000_000
+  scan_interval_sec: 30
+
+trading:
+  mode: paper  # paper | live | backtest (overridden by TRADING_MODE env var)
+  window_open: "09:30"
+  window_close: "11:30"
+  no_new_trades_after: "11:30"
+  force_close_at: "15:55"
+  timezone: "America/New_York"
+  kill_switch_check_interval_sec: 5
+
+risk:
+  profit_loss_ratio_min: 2.0
+  max_risk_per_trade_pct: 0.01
+  daily_max_loss_pct: 0.03
+  max_consecutive_losses: 3
+  max_trades_per_day: 10
+  post_loss_cooldown_sec: 60
+  post_trade_cooldown_sec: 30
+  max_position_pct: 0.25
+
+tier: novice  # novice | beginner | advanced | pro
+
+alerts:
+  discord_enabled: true
+
+dashboard:
+  host: "127.0.0.1"
+  port: 8080
+  poll_interval_sec: 5
+
+logging:
+  level: INFO  # overridden by LOG_LEVEL env var
+  file: logs/bot.log

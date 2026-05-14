@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Dashboard — {{ "{:+.2f}".format(total_pnl) }} today ({{ wins }}W / {{ losses }}L)</h1>
+
+<div class="grid">
+  <section hx-get="/partials/watchlist" hx-trigger="every 5s" hx-swap="outerHTML">
+    {% include "partials/watchlist.html" %}
+  </section>
+
+  <section hx-get="/partials/positions" hx-trigger="every 5s" hx-swap="outerHTML">
+    {% include "partials/positions.html" %}
+  </section>
+
+  <section hx-get="/partials/trades" hx-trigger="every 5s" hx-swap="outerHTML">
+    {% include "partials/trades.html" %}
+  </section>
+
+  <section hx-get="/partials/logs" hx-trigger="every 5s" hx-swap="outerHTML">
+    {% include "partials/logs.html" %}
+  </section>
+</div>
+{% endblock %}
