@@ -391,11 +391,10 @@ async def run_paper_mode(show_dashboard: bool = False) -> None:
         f"{datetime.now(ET).strftime('%Y-%m-%d %H:%M ET')}",
     )
 
-    # Dashboard (optional)
+    # Dashboard runs as a separate Streamlit process (trading-dashboard systemd service)
+    # Start it with: uv run streamlit run src/dashboard/app.py --server.port 8501
     if show_dashboard:
-        from src.dashboard.app import start_dashboard
-        start_dashboard()
-        log.info("Dashboard: http://127.0.0.1:8080")
+        log.info("Dashboard: run 'uv run streamlit run src/dashboard/app.py' separately")
 
     # Pre-market briefing at 08:30 ET (if time is right)
     now = _now_et()

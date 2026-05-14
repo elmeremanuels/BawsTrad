@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     PERPLEXITY_API_KEY: str = ""
     DISCORD_WEBHOOK_URL: str = ""
 
-    # === Dashboard auth ===
+    # === Dashboard (legacy FastAPI — kept for reference) ===
     DASHBOARD_USERNAME: str = "bawstrad"
     DASHBOARD_PASSWORD: str = "Tr4d-B@ws-K9#mX"
 
@@ -50,6 +50,12 @@ class Settings(BaseSettings):
     TRADING_MODE: Literal["paper", "live", "backtest", "test"] = "paper"
     LOG_LEVEL: str = "INFO"
     KILL_SWITCH_FILE: str = "/tmp/bot_killswitch"
+
+    # === State files (shared between bot and Streamlit dashboard) ===
+    # On prod Hetzner: /home/trader/BawsTrad/state
+    # On dev (local):  ./state
+    STATE_DIR: str = "./state"
+    BOT_DB_PATH: str = ""  # Empty = auto-detect (project root bot.db)
 
     @model_validator(mode="after")
     def check_required_secrets(self) -> "Settings":

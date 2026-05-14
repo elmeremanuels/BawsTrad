@@ -1,0 +1,26 @@
+[Unit]
+Description=BawsTrad Streamlit Dashboard
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=trader
+Group=trader
+WorkingDirectory=/home/trader/BawsTrad/trading-bot
+Environment="PATH=/home/trader/.local/bin:/usr/bin:/bin"
+ExecStart=/home/trader/.local/bin/uv run streamlit run src/dashboard/app.py \
+    --server.address 0.0.0.0 \
+    --server.port 8501 \
+    --server.headless true \
+    --browser.gatherUsageStats false
+Restart=on-failure
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=trading-dashboard
+MemoryMax=500M
+CPUQuota=80%
+
+[Install]
+WantedBy=multi-user.target

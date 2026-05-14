@@ -1,0 +1,1 @@
+"""BawsTrad Streamlit dashboard."""

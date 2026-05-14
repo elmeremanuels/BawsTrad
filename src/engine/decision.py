@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 from src.engine.risk import RISK_RULES, RiskState, check_daily_limits, passes_rr_check
 from src.engine.position import calculate_position_size
-from src.engine.state import Mode, current_mode
+from src.engine.state import Mode, current_mode, is_paused, get_pause_reason
 from src.patterns.detector import PatternSignal
 from src.scanner.criteria import TickerSnapshot
 
@@ -53,6 +53,13 @@ def evaluate_entry(
     entry = fill_price if fill_price is not None else signal.entry_trigger
     stop = signal.stop_price
     now_et = now.astimezone(ET)
+
+    # ── 0a. Dashboard pause guard ──────────────────────────────────────────
+    # Dashboard can pause the bot by creating STATE_DIR/bot_paused.flag.
+    # Checked before everything else — pause is always respected.
+    if is_paused():
+        reason = get_pause_reason() or "no_reason"
+        return EntryDecision(False, f"user_paused:{reason}")
 
     # ── 0. Operating mode guard ────────────────────────────────────────────
     # New entries are only allowed in ACTIVE_TRADING mode.

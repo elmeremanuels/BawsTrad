@@ -155,3 +155,30 @@ def minutes_until_next_change(now: Optional[datetime] = None) -> int:
     _, transition = next_mode_change(now_et)
     delta = (transition - now_et).total_seconds()
     return max(0, int(delta // 60))
+
+
+# ── Dashboard pause mechanism ──────────────────────────────────────────────────
+
+def is_paused() -> bool:
+    """
+    Return True if the dashboard has requested a bot pause.
+    Checks for existence of STATE_DIR/bot_paused.flag file.
+    Designed to be called on every tick — Path.exists() is fast.
+    """
+    try:
+        from src.config import settings
+        from pathlib import Path
+        return (Path(settings.STATE_DIR) / "bot_paused.flag").exists()
+    except Exception:
+        return False  # Never block the bot on config errors
+
+
+def get_pause_reason() -> Optional[str]:
+    """Return the reason stored in STATE_DIR/pause_reason.txt, or None."""
+    try:
+        from src.config import settings
+        from pathlib import Path
+        reason_file = Path(settings.STATE_DIR) / "pause_reason.txt"
+        return reason_file.read_text().strip() if reason_file.exists() else None
+    except Exception:
+        return None
