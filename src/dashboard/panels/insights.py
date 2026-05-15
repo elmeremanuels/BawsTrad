@@ -101,9 +101,14 @@ def render() -> None:
                     "kill_switch": "🛑", "kill_switch_cleared": "✅",
                     "mode_switch": "🔄", "learning_accepted": "✅",
                     "learning_rejected": "❌",
+                    "manual_start": "▶",
                 }
                 icon = icons.get(act, "📌")
-                detail_str = ", ".join(f"{k}={v}" for k, v in det.items()) if det else ""
+                if act == "manual_start":
+                    ks_str = "killswitch cleared" if det.get("killswitch_removed") else "no killswitch"
+                    detail_str = f"mode={det.get('mode','?')}, {ks_str}, result={det.get('result','?')}"
+                else:
+                    detail_str = ", ".join(f"{k}={v}" for k, v in det.items()) if det else ""
                 st.caption(f"{icon} **{act}** · {ts}{' — ' + detail_str if detail_str else ''}")
     else:
         st.caption("No manual overrides yet.")

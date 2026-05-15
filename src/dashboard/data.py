@@ -295,12 +295,25 @@ def get_bot_status() -> dict:
 
     kill_active = _kill_switch_path().exists()
 
+    # Synthesised state — single field the UI branches on
+    if kill_active:
+        bot_state = "killed"
+    elif systemd_status == "active":
+        bot_state = "running"
+    elif systemd_status == "failed":
+        bot_state = "failed"
+    elif systemd_status == "local-dev":
+        bot_state = "local-dev"
+    else:
+        bot_state = "stopped"  # inactive / unknown
+
     return {
         "systemd_status": systemd_status,
         "mode": mode_value,
         "paused": paused,
         "pause_reason": pause_reason,
         "kill_switch_active": kill_active,
+        "bot_state": bot_state,
     }
 
 
@@ -338,6 +351,124 @@ def get_account_value() -> float:
     except Exception:
         pass
     return 25_000.0
+
+
+# ── Pre-flight + start (no caching — live checks) ─────────────────────────────
+
+def preflight_check() -> list[dict]:
+    """
+    Run pre-flight checks before starting the bot.
+    Returns list of {name, ok, detail} — all must be ok to enable start.
+    """
+    import os
+    import httpx  # already a transitive dep via streamlit
+    checks: list[dict] = []
+
+    # 1. .env present
+    env_path = Path(".env")
+    env_exists = env_path.exists()
+    checks.append({
+        "name": ".env present",
+        "ok": env_exists,
+        "detail": str(env_path.resolve()) if env_exists else "Not found — create from .env.example",
+    })
+
+    # 2. Required Alpaca keys inside .env
+    if env_exists:
+        env_text = env_path.read_text()
+        required = ["ALPACA_API_KEY", "ALPACA_API_SECRET"]
+        missing = [k for k in required if f"{k}=" not in env_text]
+        keys_ok = not missing
+        checks.append({
+            "name": "Alpaca API keys",
+            "ok": keys_ok,
+            "detail": "Both present" if keys_ok else f"Missing: {', '.join(missing)}",
+        })
+    else:
+        checks.append({"name": "Alpaca API keys", "ok": False, "detail": ".env not found"})
+
+    # 3. Alpaca reachable (HTTPS, no auth needed for connectivity check)
+    try:
+        r = httpx.get("https://paper-api.alpaca.markets", timeout=5, follow_redirects=True)
+        ok = r.status_code < 500
+        checks.append({"name": "Alpaca reachable", "ok": ok, "detail": f"HTTP {r.status_code}"})
+    except Exception as exc:
+        checks.append({"name": "Alpaca reachable", "ok": False, "detail": str(exc)[:80]})
+
+    # 4. Discord reachable (optional — only if webhook is configured)
+    import os as _os
+    discord_url = _os.getenv("DISCORD_WEBHOOK_URL", "")
+    if discord_url:
+        try:
+            r = httpx.get("https://discord.com", timeout=5, follow_redirects=True)
+            ok = r.status_code < 500
+            checks.append({"name": "Discord reachable", "ok": ok, "detail": f"HTTP {r.status_code}"})
+        except Exception as exc:
+            checks.append({"name": "Discord reachable", "ok": False, "detail": str(exc)[:80]})
+    else:
+        checks.append({
+            "name": "Discord webhook",
+            "ok": True,
+            "detail": "Not configured (optional — alerts disabled)",
+        })
+
+    return checks
+
+
+def start_bot() -> dict:
+    """
+    Clear the kill switch (if present) and start trading-bot via systemctl.
+    Returns {ok, kill_removed, mode, error}.
+    Audit-logged to state/last_dashboard_action.json.
+    """
+    kill_removed = False
+
+    # 1. Clear kill switch
+    ks_path = _kill_switch_path()
+    if ks_path.exists():
+        ks_path.unlink(missing_ok=True)
+        kill_removed = True
+
+    # 2. Read current TRADING_MODE from .env
+    mode = "unknown"
+    try:
+        for line in Path(".env").read_text().splitlines():
+            if line.startswith("TRADING_MODE="):
+                mode = line.split("=", 1)[1].strip()
+    except Exception:
+        pass
+
+    # 3. systemctl start
+    try:
+        result = subprocess.run(
+            ["sudo", "systemctl", "start", _bot_service_name()],
+            capture_output=True, text=True, timeout=15,
+        )
+        ok = result.returncode == 0
+        error: Optional[str] = result.stderr.strip() or None if not ok else None
+    except Exception as exc:
+        ok = False
+        error = str(exc)
+
+    log_dashboard_action("manual_start", {
+        "mode": mode,
+        "killswitch_removed": kill_removed,
+        "result": "success" if ok else "failure",
+        "error": error or "",
+    })
+    return {"ok": ok, "kill_removed": kill_removed, "mode": mode, "error": error}
+
+
+def get_journalctl_tail(n: int = 20) -> str:
+    """Return the last N lines from the bot's systemd journal (for crash display)."""
+    try:
+        result = subprocess.run(
+            ["journalctl", "-u", _bot_service_name(), f"-n{n}", "--no-pager", "--output=short"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return result.stdout.strip() or "(no log output)"
+    except Exception as exc:
+        return f"(could not read journal: {exc})"
 
 
 # ── Write functions (no caching) ──────────────────────────────────────────────
