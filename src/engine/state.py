@@ -9,6 +9,8 @@ Single source of truth: current_mode(). Everything else reads this.
 
 from datetime import date, datetime, time, timedelta
 from enum import Enum
+from functools import lru_cache
+from pathlib import Path
 from typing import Optional, Tuple
 from zoneinfo import ZoneInfo
 
@@ -16,6 +18,27 @@ import exchange_calendars as ec
 
 ET = ZoneInfo("America/New_York")
 _nyse = ec.get_calendar("XNYS")
+
+
+@lru_cache(maxsize=1)
+def _trading_window() -> tuple[time, time]:
+    """
+    Load window_start / window_end from config.yaml.
+    Cached at first call (module stays pure — no repeated YAML reads).
+    Falls back to full-session defaults (09:30 – 15:55) if config is missing.
+    """
+    try:
+        import yaml
+        cfg = Path(__file__).parent.parent.parent / "config.yaml"
+        with open(cfg) as f:
+            data = yaml.safe_load(f) or {}
+        tr = data.get("trading", {})
+        def _t(s: str) -> time:
+            h, m = map(int, s.split(":"))
+            return time(h, m)
+        return _t(tr.get("window_start", "09:30")), _t(tr.get("window_end", "15:55"))
+    except Exception:
+        return time(9, 30), time(15, 55)
 
 
 class Mode(str, Enum):
@@ -84,13 +107,14 @@ def current_mode(
 
     close = _session_close(today)
     t = now_et.time()
+    win_start, win_end = _trading_window()  # e.g. (09:30, 15:55) from config.yaml
 
-    if time(4, 0) <= t < time(9, 30):
+    if time(4, 0) <= t < win_start:
         return Mode.PRE_MARKET_PREP
-    elif time(9, 30) <= t < time(11, 30):
+    elif win_start <= t < win_end:
         return Mode.ACTIVE_TRADING
-    elif time(11, 30) <= t < close:
-        return Mode.POSITION_MGMT
+    elif win_end <= t < close:
+        return Mode.POSITION_MGMT   # Short force-close window (e.g. 15:55 – 16:00)
     elif close <= t < time(20, 0):
         return Mode.EOD_REFLECT
     else:  # 20:00 – 04:00
@@ -115,14 +139,15 @@ def next_mode_change(now: Optional[datetime] = None) -> Tuple[Mode, datetime]:
         return Mode.PRE_MARKET_PREP, transition
 
     close = _session_close(today)
+    win_start, win_end = _trading_window()
 
     # Ordered list of (boundary_time, mode_that_starts_at_boundary)
     boundaries = [
-        (time(4, 0),  Mode.PRE_MARKET_PREP),
-        (time(9, 30), Mode.ACTIVE_TRADING),
-        (time(11, 30), Mode.POSITION_MGMT),
-        (close,        Mode.EOD_REFLECT),
-        (time(20, 0),  Mode.OVERNIGHT_INTEL),
+        (time(4, 0), Mode.PRE_MARKET_PREP),
+        (win_start,  Mode.ACTIVE_TRADING),
+        (win_end,    Mode.POSITION_MGMT),
+        (close,      Mode.EOD_REFLECT),
+        (time(20, 0), Mode.OVERNIGHT_INTEL),
     ]
 
     for boundary, next_mode in boundaries:

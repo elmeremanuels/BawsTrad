@@ -74,13 +74,13 @@ def test_entry_blocked_before_trading_window():
 
 
 def test_entry_blocked_after_trading_window():
-    # 11:30 ET on a trading day → POSITION_MGMT (mode guard fires first)
+    # 15:56 ET on a trading day → POSITION_MGMT (window extended to 15:55)
     dec = evaluate_entry(
         ticker=_snap(),
         signal=_signal(),
         account_value=25_000,
         risk_state=_state(),
-        now=_et(11, 30),  # At 11:30 → POSITION_MGMT
+        now=_et(15, 56),  # After 15:55 → POSITION_MGMT
     )
     assert dec.approved is False
     # Mode guard fires before window check; both are equivalent rejections
@@ -118,14 +118,14 @@ def test_target_is_at_least_2r():
 # ── Mode guard tests ───────────────────────────────────────────────────────────
 
 def test_entry_blocked_in_position_mgmt_mode():
-    """11:35 ET on a trading day → POSITION_MGMT, not ACTIVE_TRADING."""
+    """15:56 ET on a trading day → POSITION_MGMT (force-close window)."""
     # 2024-01-16 is Tuesday, a regular NYSE session
     dec = evaluate_entry(
         ticker=_snap(),
         signal=_signal(),
         account_value=25_000,
         risk_state=_state(),
-        now=datetime(2024, 1, 16, 11, 35, 0, tzinfo=ET),  # After 11:30
+        now=datetime(2024, 1, 16, 15, 56, 0, tzinfo=ET),  # After 15:55
     )
     assert dec.approved is False
     assert "mode_not_active_trading" in dec.reason

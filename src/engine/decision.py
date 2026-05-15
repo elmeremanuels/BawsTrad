@@ -7,6 +7,8 @@ Entry decision engine — all checks must be green before a trade is opened.
 
 from dataclasses import dataclass
 from datetime import datetime
+from functools import lru_cache
+from pathlib import Path
 from typing import Optional, Tuple
 from zoneinfo import ZoneInfo
 
@@ -17,6 +19,28 @@ from src.patterns.detector import PatternSignal
 from src.scanner.criteria import TickerSnapshot
 
 ET = ZoneInfo("America/New_York")
+
+# Baseline quality_score floor used for late-session tightening check (0-100 scale)
+_LATE_SESSION_BASE_QUALITY = 50.0
+# 11:30 ET — where momentum traditionally weakens (soft cutoff, configurable multiplier)
+_LATE_CUTOFF_H, _LATE_CUTOFF_M = 11, 30
+
+
+@lru_cache(maxsize=1)
+def _quality_multiplier() -> float:
+    """
+    Load after_1130_quality_multiplier from config.yaml (cached).
+    Default 1.0 = disabled (no extra quality requirement).
+    Set to e.g. 1.2 in config once you have live data to calibrate against.
+    """
+    try:
+        import yaml
+        cfg = Path(__file__).parent.parent.parent / "config.yaml"
+        with open(cfg) as f:
+            data = yaml.safe_load(f) or {}
+        return float(data.get("trading", {}).get("after_1130_quality_multiplier", 1.0))
+    except Exception:
+        return 1.0
 
 
 @dataclass
@@ -68,6 +92,24 @@ def evaluate_entry(
     mode = current_mode(now=now_et)
     if mode is not Mode.ACTIVE_TRADING:
         return EntryDecision(False, f"mode_not_active_trading:{mode.value}")
+
+    # ── 0b. Late-session quality tightening (optional; default off) ────────
+    # After 11:30 ET momentum traditionally weakens — optionally require a
+    # higher quality_score. Controlled by after_1130_quality_multiplier in
+    # config.yaml (default 1.0 = no effect; set to e.g. 1.2 to enable).
+    multiplier = _quality_multiplier()
+    if multiplier > 1.0:
+        late_cutoff = now_et.replace(
+            hour=_LATE_CUTOFF_H, minute=_LATE_CUTOFF_M, second=0, microsecond=0
+        )
+        if now_et >= late_cutoff:
+            min_q = _LATE_SESSION_BASE_QUALITY * multiplier
+            score = ticker.quality_score if hasattr(ticker, "quality_score") else 0.0
+            if (score or 0.0) < min_q:
+                return EntryDecision(
+                    False,
+                    f"quality_too_low_late_session:{score:.1f}<{min_q:.1f}",
+                )
 
     # ── 1. Trading window ───────────────────────────────────────────────────
     day_base = now_et.replace(hour=9, minute=30, second=0, microsecond=0)

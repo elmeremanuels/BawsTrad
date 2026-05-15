@@ -21,10 +21,20 @@ def test_active_trading_at_open():
     assert current_mode(datetime(2026, 5, 14, 9, 30, tzinfo=ET)) == Mode.ACTIVE_TRADING
 
 def test_position_mgmt():
-    assert current_mode(datetime(2026, 5, 14, 12, 0, tzinfo=ET)) == Mode.POSITION_MGMT
+    # 15:56 ET is inside the force-close window (15:55 – market close)
+    assert current_mode(datetime(2026, 5, 14, 15, 56, tzinfo=ET)) == Mode.POSITION_MGMT
 
 def test_position_mgmt_at_boundary():
-    assert current_mode(datetime(2026, 5, 14, 11, 30, tzinfo=ET)) == Mode.POSITION_MGMT
+    # 15:55 is the exact start of POSITION_MGMT (window_end from config.yaml)
+    assert current_mode(datetime(2026, 5, 14, 15, 55, tzinfo=ET)) == Mode.POSITION_MGMT
+
+def test_active_trading_extended_to_1555():
+    # 12:00 ET is now ACTIVE_TRADING — window extends to 15:55
+    assert current_mode(datetime(2026, 5, 14, 12, 0, tzinfo=ET)) == Mode.ACTIVE_TRADING
+
+def test_active_trading_late_afternoon():
+    # 15:00 ET is still inside the trading window
+    assert current_mode(datetime(2026, 5, 14, 15, 0, tzinfo=ET)) == Mode.ACTIVE_TRADING
 
 def test_eod_reflect():
     assert current_mode(datetime(2026, 5, 14, 17, 0, tzinfo=ET)) == Mode.EOD_REFLECT
@@ -90,9 +100,10 @@ def test_next_change_from_pre_market():
     assert t.hour == 9 and t.minute == 30
 
 def test_next_change_from_active_trading():
+    # Trading window now ends at 15:55 — that is the next POSITION_MGMT boundary
     next_mode, t = next_mode_change(datetime(2026, 5, 14, 10, 0, tzinfo=ET))
     assert next_mode == Mode.POSITION_MGMT
-    assert t.hour == 11 and t.minute == 30
+    assert t.hour == 15 and t.minute == 55
 
 def test_next_change_from_weekend():
     # Saturday → next trading day Monday at 04:00

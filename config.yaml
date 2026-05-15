@@ -19,10 +19,13 @@ scanner:
 
 trading:
   mode: paper  # paper | live | backtest (overridden by TRADING_MODE env var)
-  window_open: "09:30"
-  window_close: "11:30"
-  no_new_trades_after: "11:30"
+  window_start: "09:30"          # ET — ACTIVE_TRADING begins (market open)
+  window_end:   "15:55"          # ET — ACTIVE_TRADING ends (5 min before close)
+  # POSITION_MGMT = window_end → actual market close (force-close window only)
   force_close_at: "15:55"
+  # Late-session quality tightening: after 11:30 ET require quality_score >= 50 * multiplier.
+  # Default 1.0 = disabled (no effect). Raise to 1.2 once you have 4+ weeks of live data.
+  after_1130_quality_multiplier: 1.0
   timezone: "America/New_York"
   kill_switch_check_interval_sec: 5
 
@@ -54,7 +57,7 @@ state_machine:
   enabled: true                    # Set false to run in shadow-mode (log only, no enforcement)
   pre_market_start: "04:00"        # ET — enter PRE_MARKET_PREP
   active_trading_start: "09:30"    # ET — enter ACTIVE_TRADING
-  position_mgmt_start: "11:30"     # ET — enter POSITION_MGMT (no new entries)
+  position_mgmt_start: "15:55"     # ET — enter POSITION_MGMT (force-close window only)
   eod_reflect_start:  "16:00"      # ET — enter EOD_REFLECT (approximate; uses actual close)
   overnight_intel_start: "20:00"   # ET — enter OVERNIGHT_INTEL
   stale_position_alert_hours: 4    # Warn if a position is open longer than this

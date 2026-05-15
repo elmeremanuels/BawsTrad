@@ -15,8 +15,8 @@ RISK_RULES = {
     "daily_max_loss_pct": 0.03,
     "max_consecutive_losses": 3,
     "max_trades_per_day": 10,
-    "trading_window": ("09:30", "11:30"),
-    "no_new_trades_after": "11:30",
+    "trading_window": ("09:30", "15:55"),   # full session; window_end read from config.yaml
+    "no_new_trades_after": "15:55",
     "force_close_at": "15:55",
     "post_loss_cooldown_sec": 60,
     "post_trade_cooldown_sec": 30,
