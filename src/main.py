@@ -61,8 +61,12 @@ def _now_et() -> datetime:
 
 
 def _in_trading_window(now: Optional[datetime] = None) -> bool:
-    t = (now or _now_et()).astimezone(ET)
-    return (t.hour, t.minute) >= (9, 30) and (t.hour, t.minute) < (11, 30)
+    """True when the state machine is in ACTIVE_TRADING mode.
+    Reads window_start/window_end from config.yaml via engine.state — NOT hardcoded.
+    Previously hardcoded to 09:30-11:30 which silently dropped all bars after 11:30.
+    """
+    from src.engine.state import Mode, current_mode
+    return current_mode(now=now or _now_et()) is Mode.ACTIVE_TRADING
 
 
 def _after_force_close(now: Optional[datetime] = None) -> bool:
@@ -127,7 +131,7 @@ async def run_test_mode() -> None:
 # ─── Pre-market scanner ───────────────────────────────────────────────────────
 
 async def run_premarket_scanner(universe_tickers: List[str]) -> None:
-    """Poll Alpaca snapshots every 30s to build watchlist until 10:00 ET."""
+    """Poll Alpaca snapshots every 30s to build watchlist until scanner_stop_hour ET."""
     from src.data.alpaca_client import get_snapshots
     from src.scanner.criteria import NewsCatalyst, TickerSnapshot, passes_stock_selection, quality_score
     from src.news.ingest import ingest_news_for_ticker, get_best_catalyst_today
@@ -135,15 +139,25 @@ async def run_premarket_scanner(universe_tickers: List[str]) -> None:
     from uuid import uuid4
 
     log = structlog.get_logger("scanner")
-    log.info("Pre-market scanner started (%d tickers)", len(universe_tickers))
+
+    # Read scanner_stop_hour from config.yaml (default 10 ET)
+    _stop_hour = 10
+    try:
+        with open("config.yaml") as _f:
+            _stop_hour = int((yaml.safe_load(_f) or {}).get("scanner", {}).get("scanner_stop_hour", 10))
+    except Exception:
+        pass
+    log.info("Pre-market scanner started", tickers=len(universe_tickers), stop_hour=_stop_hour)
 
     # Track which tickers have already had news fetched this session
     # to avoid hammering Finnhub on every 30s cycle
     _news_fetched: set = set()
+    _cycle = 0
 
     while not _state.ws_stop.is_set():
         now = _now_et()
-        if (now.hour, now.minute) >= (10, 0):  # Run until 10:00 ET (was 09:35)
+        if now.hour >= _stop_hour:
+            log.info("scanner: stopping", stop_hour=_stop_hour, cycles_run=_cycle)
             break
 
         try:
@@ -197,11 +211,15 @@ async def run_premarket_scanner(universe_tickers: List[str]) -> None:
                 cat_ok   = catalyst is not None and catalyst.tier in ("A", "B")
                 float_ok = float_shares < 20_000_000
 
-                if price_ok and gap_ok and float_ok and not cat_ok:
-                    # Promising ticker blocked only by missing news — log it
-                    log.info("scanner: gap mover without catalyst",
-                             ticker=ticker, gap_pct=round(gap_pct, 1),
-                             price=round(price, 2), catalyst=str(catalyst))
+                # Log why promising tickers (gap ≥10%, right price) are rejected
+                if gap_ok and price_ok:
+                    if not float_ok:
+                        log.debug("scanner: rejected float_too_large",
+                                  ticker=ticker, float_shares=float_shares)
+                    elif not cat_ok:
+                        log.info("scanner: gap mover without catalyst",
+                                 ticker=ticker, gap_pct=round(gap_pct, 1),
+                                 price=round(price, 2), catalyst=str(catalyst))
 
                 if passes_stock_selection(s):
                     score = quality_score(s)
@@ -220,21 +238,32 @@ async def run_premarket_scanner(universe_tickers: List[str]) -> None:
 
             candidates.sort(reverse=True)
             _state.watchlist = [s for _, s in candidates[:5]]
+            _cycle += 1
 
-            # Always log watchlist + how many tickers had a gap
-            gappers = [(t, snap) for t, snap in snaps.items()
-                       if (snap.get("dailyBar") or {}).get("c", 0) > 0
-                       and (snap.get("prevDailyBar") or {}).get("c", 0) > 0
-                       and ((snap.get("dailyBar") or {}).get("c", 0) /
-                            (snap.get("prevDailyBar") or {}).get("c", 1) - 1) * 100 >= 5.0]
+            gappers = [
+                t for t, snap in snaps.items()
+                if (snap.get("prevDailyBar") or {}).get("c", 0) > 0
+                and (((snap.get("dailyBar") or {}).get("c", 0)
+                      / (snap.get("prevDailyBar") or {}).get("c", 1)) - 1) * 100 >= 5.0
+            ]
             log.info("scanner: cycle complete",
+                     cycle=_cycle,
                      universe=len(snaps),
                      gappers_5pct=len(gappers),
                      passed_filter=len(candidates),
                      watchlist=[s.ticker for s in _state.watchlist])
 
+            # Write heartbeat to DB every 5 cycles (~2.5 min) so the dashboard
+            # and SQLite show the scanner is alive even when 0 tickers pass.
+            if _cycle % 5 == 1:
+                _log_event("scanner_cycle",
+                           f"cycle={_cycle} universe={len(snaps)} "
+                           f"gappers={len(gappers)} passed={len(candidates)} "
+                           f"watchlist={[s.ticker for s in _state.watchlist]}")
+
         except Exception as exc:
             log.error("Scanner error: %s", exc)
+            _log_event("scanner_error", str(exc))
 
         await asyncio.sleep(30)
 
