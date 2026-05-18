@@ -56,6 +56,20 @@ def classify_with_llm(headline: str, ticker: str) -> Tuple[str, str]:
         category = data.get("category", "general")
         if tier not in ("A", "B", "C"):
             tier = "B"
+
+        # Log connectivity heartbeat for dashboard health panel
+        try:
+            from datetime import datetime
+            from src.storage.db import get_connection
+            with get_connection() as _c:
+                _c.execute(
+                    "INSERT INTO bot_events (occurred_at, event_type, message) VALUES (?, ?, ?)",
+                    (datetime.utcnow().isoformat(), "news_classified",
+                     f"{ticker}: [{tier}] {category}"),
+                )
+        except Exception:
+            pass  # non-fatal
+
         return tier, category
     except Exception as exc:
         logger.warning("Groq classification failed (%s) — falling back to keyword", exc)

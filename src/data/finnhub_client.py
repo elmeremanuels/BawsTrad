@@ -77,4 +77,17 @@ def get_company_news(ticker: str, from_date: date, to_date: date) -> List[RawNew
             url=item.get("url", ""),
             summary=item.get("summary", ""),
         ))
+
+    # Log connectivity heartbeat so the dashboard health panel can show last-seen time
+    try:
+        from src.storage.db import get_connection
+        with get_connection() as _c:
+            _c.execute(
+                "INSERT INTO bot_events (occurred_at, event_type, message) VALUES (?, ?, ?)",
+                (datetime.utcnow().isoformat(), "news_ingested",
+                 f"{ticker}: {len(results)} articles"),
+            )
+    except Exception:
+        pass  # non-fatal — never let logging break the data path
+
     return results

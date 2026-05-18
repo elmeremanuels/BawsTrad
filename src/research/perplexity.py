@@ -124,6 +124,19 @@ Please provide your briefing. Focus on which tickers have genuine catalysts and 
         )
         _store_briefing(briefing)
         logger.info("Pre-market briefing ready: %s", briefing.market_context[:80])
+
+        # Log connectivity heartbeat for dashboard health panel
+        try:
+            from datetime import datetime
+            with get_connection() as _c:
+                _c.execute(
+                    "INSERT INTO bot_events (occurred_at, event_type, message) VALUES (?, ?, ?)",
+                    (datetime.utcnow().isoformat(), "briefing_fetched",
+                     f"{briefing_date.isoformat()}: {briefing.market_context[:80]}"),
+                )
+        except Exception:
+            pass  # non-fatal
+
         return briefing
 
     except Exception as exc:

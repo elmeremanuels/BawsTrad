@@ -12,7 +12,7 @@ from typing import List, Set
 from uuid import uuid4
 
 from src.data.finnhub_client import get_company_news
-from src.news.classifier import classify_headline
+from src.llm.cheap import classify_with_llm  # Groq LLM with keyword fallback
 from src.storage.db import get_connection
 
 logger = logging.getLogger(__name__)
@@ -45,7 +45,7 @@ def ingest_news_for_ticker(ticker: str) -> List[dict]:
         if _already_stored(h):
             continue
 
-        tier, category = classify_headline(item.headline, ticker)
+        tier, category = classify_with_llm(item.headline, ticker)
         item_id = f"{h}-{uuid4().hex[:8]}"
         record = {
             "id":         item_id,

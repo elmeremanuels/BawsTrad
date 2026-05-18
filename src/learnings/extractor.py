@@ -8,12 +8,25 @@ compact structured input to Claude (Tier 3). Not called in real-time.
 
 import json
 import logging
-from datetime import date
+from datetime import date, datetime
 from typing import List, Optional
 
 from src.learnings.store import save_learning
 from src.llm.claude import analyze
 from src.storage.db import get_connection
+
+
+def _log_learning_event(trigger: str, scope: str) -> None:
+    """Write a learning_extracted heartbeat to bot_events (best-effort)."""
+    try:
+        with get_connection() as _c:
+            _c.execute(
+                "INSERT INTO bot_events (occurred_at, event_type, message) VALUES (?, ?, ?)",
+                (datetime.utcnow().isoformat(), "learning_extracted",
+                 f"trigger={trigger} scope={scope}"),
+            )
+    except Exception:
+        pass
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +121,7 @@ Generate a learning from this single trade."""
             related_trade_ids=[trade.get("id", "")],
             suggested_change=data.get("suggested_change"),
         )
+        _log_learning_event(trigger, "trade")
         return data.get("discord_message", "")
     except Exception as exc:
         logger.error("Failed to parse Claude learning: %s", exc)
@@ -141,6 +155,7 @@ Generate a learning from this period's trading."""
             related_trade_ids=[t.get("id", "") for t in trades],
             suggested_change=data.get("suggested_change"),
         )
+        _log_learning_event(trigger, scope)
         return data.get("discord_message", "")
     except Exception as exc:
         logger.error("Failed to parse Claude period learning: %s", exc)
