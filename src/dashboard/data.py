@@ -245,11 +245,18 @@ def get_learnings(status: Optional[str] = None) -> list[dict]:
 def get_connectivity_health() -> dict:
     """Last API activity per service, inferred from bot_events."""
     services = {
-        "Alpaca": ["entry", "startup", "force_close"],
-        "Finnhub": ["news_ingested"],
-        "Discord": ["startup", "entry", "force_close"],
-        "Groq": ["news_classified"],
-        "Anthropic": ["learning_extracted"],
+        # scanner_cycle fires every ~25s during pre-market (Alpaca snapshots)
+        # entry/force_close fire during trading hours
+        "Alpaca":     ["entry", "startup", "force_close", "scanner_cycle"],
+        # news_ingested fires per ticker during pre-market scanner + overnight sweeps
+        "Finnhub":    ["news_ingested"],
+        # startup/entry/force_close are the Discord touch-points
+        "Discord":    ["startup", "entry", "force_close"],
+        # news_classified fires per headline when Groq key is set
+        "Groq":       ["news_classified"],
+        # learning_extracted fires post-trade / EOD (rare, high-value)
+        "Anthropic":  ["learning_extracted"],
+        # briefing_fetched fires once at 08:30 ET per trading day
         "Perplexity": ["briefing_fetched"],
     }
     health = {}
