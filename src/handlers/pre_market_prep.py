@@ -4,7 +4,8 @@ from __future__ import annotations
 PRE_MARKET_PREP handler — 04:00–09:30 ET on NYSE trading days.
 
 Schedule (ET, fires at most once per session window):
-  04:00  Initial universe scan — news ingest for all tickers
+  04:00  Universe refresh — run scripts/refresh_universe.py if not done today
+  04:10  News ingest — fetch overnight news for all tickers
   06:00  Watchlist ranking — score candidates by quality_score
   07:30  Learnings review — pull active learnings from SQLite
   08:30  Perplexity briefing — market context + sector watch + avoid list
@@ -17,6 +18,7 @@ by a module-level set so restarts within the window don't double-fire.
 """
 
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import structlog
@@ -28,7 +30,8 @@ log = structlog.get_logger(__name__)
 _tasks_fired: set = set()
 
 _TASKS = {
-    (4, 0):  "news_ingest",
+    (4, 0):  "universe_refresh",
+    (4, 10): "news_ingest",
     (6, 0):  "watchlist_rank",
     (7, 30): "learnings_review",
     (8, 30): "perplexity_briefing",
@@ -47,8 +50,49 @@ def _due_task(now_et: datetime) -> str | None:
     return None
 
 
+async def _run_universe_refresh(state) -> None:
+    """04:00 — Run refresh_universe.py if universe_today.csv doesn't exist for today."""
+    import asyncio
+    import os
+    import sys
+
+    universe_path = Path("universe_today.csv")
+
+    # Skip if file already exists and was written today
+    if universe_path.exists():
+        mtime = datetime.fromtimestamp(universe_path.stat().st_mtime).date()
+        if mtime >= date.today():
+            log.info("pre_market_prep: universe_today.csv already fresh, skipping refresh",
+                     mtime=str(mtime))
+            return
+
+    log.info("pre_market_prep: running universe refresh script")
+    script = Path(__file__).resolve().parent.parent.parent / "scripts" / "refresh_universe.py"
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, str(script),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
+        output = stdout.decode(errors="replace").strip() if stdout else ""
+        if output:
+            for line in output.splitlines():
+                log.info("refresh_universe", output=line)
+        if proc.returncode != 0:
+            log.warning("pre_market_prep: refresh_universe exited non-zero",
+                        returncode=proc.returncode)
+        else:
+            log.info("pre_market_prep: universe refresh complete")
+    except asyncio.TimeoutError:
+        log.warning("pre_market_prep: universe refresh timed out after 120s")
+    except Exception as exc:
+        log.error("pre_market_prep: universe refresh failed", error=str(exc))
+
+
 async def _run_news_ingest(state) -> None:
-    """04:00 — Ingest overnight news for all tickers."""
+    """04:10 — Ingest overnight news for all tickers."""
     tickers = list(getattr(state, "_float_map", {}).keys())
     if not tickers:
         log.warning("pre_market_prep: no tickers for news ingest")
@@ -224,6 +268,7 @@ async def _run_t5_alert(state) -> None:
 
 
 _TASK_FNS = {
+    "universe_refresh":    _run_universe_refresh,
     "news_ingest":         _run_news_ingest,
     "watchlist_rank":      _run_watchlist_rank,
     "learnings_review":    _run_learnings_review,

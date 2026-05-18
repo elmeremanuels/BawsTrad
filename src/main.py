@@ -383,8 +383,13 @@ async def run_paper_mode(show_dashboard: bool = False) -> None:
 
     log = structlog.get_logger("main")
 
-    # Load universe
-    universe_path = Path("small_cap_runners.csv")
+    # Load universe — prefer today's refreshed universe if available
+    universe_path = (
+        Path("universe_today.csv")
+        if Path("universe_today.csv").exists()
+        else Path("small_cap_runners.csv")
+    )
+    log.info("Loading universe", path=str(universe_path))
     universe_tickers: List[str] = []
     float_map: Dict[str, int] = {}
     if universe_path.exists():
