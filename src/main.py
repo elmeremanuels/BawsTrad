@@ -131,23 +131,42 @@ async def run_test_mode() -> None:
 # ─── Pre-market scanner ───────────────────────────────────────────────────────
 
 async def run_premarket_scanner(universe_tickers: List[str]) -> None:
-    """Poll Alpaca snapshots every 30s to build watchlist until scanner_stop_hour ET."""
+    """
+    Poll Alpaca snapshots to build watchlist.
+
+    Runs during PRE_MARKET_PREP (every premarket_scan_interval_sec, default 30s)
+    and ACTIVE_TRADING (every intraday_scan_interval_sec, default 300s).
+    Stops automatically when the mode leaves those two windows (e.g. POSITION_MGMT).
+    No hardcoded stop hour — timing is fully driven by config.yaml via engine.state.
+    """
     from src.data.alpaca_client import get_snapshots
     from src.scanner.criteria import NewsCatalyst, TickerSnapshot, passes_stock_selection, quality_score
     from src.news.ingest import ingest_news_for_ticker, get_best_catalyst_today
     from src.storage.db import get_connection
+    from src.engine.state import Mode, current_mode
     from uuid import uuid4
 
     log = structlog.get_logger("scanner")
 
-    # Read scanner_stop_hour from config.yaml (default 10 ET)
-    _stop_hour = 10
+    # Read scan intervals and watchlist size from config.yaml
+    _premarket_interval = 30
+    _intraday_interval  = 300
+    _max_watchlist      = 5
     try:
         with open("config.yaml") as _f:
-            _stop_hour = int((yaml.safe_load(_f) or {}).get("scanner", {}).get("scanner_stop_hour", 10))
+            _cfg = yaml.safe_load(_f) or {}
+            _sc  = _cfg.get("scanner", {})
+            _premarket_interval = int(_sc.get("premarket_scan_interval_sec",
+                                              _sc.get("scan_interval_sec", 30)))
+            _intraday_interval  = int(_sc.get("intraday_scan_interval_sec", 300))
+            _max_watchlist      = int(_sc.get("max_watchlist_size", 5))
     except Exception:
         pass
-    log.info("Pre-market scanner started", tickers=len(universe_tickers), stop_hour=_stop_hour)
+
+    log.info("Scanner started",
+             tickers=len(universe_tickers),
+             premarket_interval=_premarket_interval,
+             intraday_interval=_intraday_interval)
 
     # Track which tickers have already had news fetched this session
     # to avoid hammering Finnhub on every 30s cycle
@@ -155,10 +174,18 @@ async def run_premarket_scanner(universe_tickers: List[str]) -> None:
     _cycle = 0
 
     while not _state.ws_stop.is_set():
-        now = _now_et()
-        if now.hour >= _stop_hour:
-            log.info("scanner: stopping", stop_hour=_stop_hour, cycles_run=_cycle)
+        now  = _now_et()
+        mode = current_mode(now=now)
+
+        # Stop when outside trading windows
+        if mode not in (Mode.PRE_MARKET_PREP, Mode.ACTIVE_TRADING):
+            log.info("scanner: stopping — mode left trading window",
+                     mode=mode.value, cycles_run=_cycle)
             break
+
+        # Slower interval during active trading (watchlist already warm)
+        _sleep_sec = (_premarket_interval if mode is Mode.PRE_MARKET_PREP
+                      else _intraday_interval)
 
         try:
             snaps = get_snapshots(universe_tickers)
@@ -237,7 +264,7 @@ async def run_premarket_scanner(universe_tickers: List[str]) -> None:
                               catalyst.tier if catalyst else None, score))
 
             candidates.sort(reverse=True)
-            _state.watchlist = [s for _, s in candidates[:5]]
+            _state.watchlist = [s for _, s in candidates[:_max_watchlist]]
             _cycle += 1
 
             gappers = [
@@ -265,7 +292,7 @@ async def run_premarket_scanner(universe_tickers: List[str]) -> None:
             log.error("Scanner error: %s", exc)
             _log_event("scanner_error", str(exc))
 
-        await asyncio.sleep(30)
+        await asyncio.sleep(_sleep_sec)
 
 
 # ─── Real-time bar handler ────────────────────────────────────────────────────
@@ -383,13 +410,18 @@ async def run_paper_mode(show_dashboard: bool = False) -> None:
 
     log = structlog.get_logger("main")
 
-    # Load universe — prefer today's refreshed universe if available
-    universe_path = (
-        Path("universe_today.csv")
-        if Path("universe_today.csv").exists()
-        else Path("small_cap_runners.csv")
-    )
-    log.info("Loading universe", path=str(universe_path))
+    # Load universe — prefer today's refreshed universe if available.
+    # Paths configurable via config.yaml scanner.universe_file / universe_fallback.
+    try:
+        _sc_cfg = (yaml.safe_load(open("config.yaml")) or {}).get("scanner", {})
+        _today_path    = Path(_sc_cfg.get("universe_file",    "state/universe_today.csv"))
+        _fallback_path = Path(_sc_cfg.get("universe_fallback", "small_cap_runners.csv"))
+    except Exception:
+        _today_path    = Path("state/universe_today.csv")
+        _fallback_path = Path("small_cap_runners.csv")
+    universe_path = _today_path if _today_path.exists() else _fallback_path
+    log.info("Loading universe", path=str(universe_path),
+             fresh=_today_path.exists())
     universe_tickers: List[str] = []
     float_map: Dict[str, int] = {}
     if universe_path.exists():

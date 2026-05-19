@@ -22,6 +22,30 @@ RISK_RULES = {
     "post_trade_cooldown_sec": 30,
 }
 
+
+def _load_risk_from_config() -> None:
+    """Overwrite RISK_RULES defaults with values from config.yaml (risk: section)."""
+    try:
+        from pathlib import Path
+        import yaml
+        cfg_path = Path(__file__).parent.parent.parent / "config.yaml"
+        with open(cfg_path) as f:
+            cfg = yaml.safe_load(f) or {}
+        risk_cfg = cfg.get("risk", {})
+        numeric_keys = (
+            "profit_loss_ratio_min", "max_risk_per_trade_pct", "daily_max_loss_pct",
+            "max_consecutive_losses", "max_trades_per_day",
+            "post_loss_cooldown_sec", "post_trade_cooldown_sec", "max_position_pct",
+        )
+        for key in numeric_keys:
+            if key in risk_cfg:
+                RISK_RULES[key] = risk_cfg[key]
+    except Exception:
+        pass  # safe — keep hardcoded defaults
+
+
+_load_risk_from_config()
+
 TRIFECTA_TARGETS = {
     "novice":   {"consistency_weeks": 1,  "accuracy_min": 0.40, "pnl_ratio_min": 0.5},
     "beginner": {"consistency_weeks": 2,  "accuracy_min": 0.50, "pnl_ratio_min": 1.0},

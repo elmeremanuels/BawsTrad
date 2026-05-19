@@ -85,6 +85,29 @@ def get_snapshots(tickers: List[str]) -> Dict[str, dict]:
     return result
 
 
+def get_all_tradeable_assets() -> List[dict]:
+    """
+    Fetch all active, tradeable US equity assets from Alpaca.
+    Returns a list of asset dicts (symbol, name, exchange, tradable, status).
+    Used by scripts/build_base_universe.py to build the static base universe.
+    Returns [] on error.
+    """
+    try:
+        assets: List[dict] = []
+        # Alpaca returns up to 10 000 assets per call for us_equity class
+        data = _rest("GET", "/v2/assets", params={
+            "status":      "active",
+            "asset_class": "us_equity",
+        })
+        if isinstance(data, list):
+            assets = data
+        logger.info("get_all_tradeable_assets: fetched %d assets", len(assets))
+        return assets
+    except Exception as exc:
+        logger.warning("get_all_tradeable_assets failed: %s", exc)
+        return []
+
+
 def get_latest_bars(tickers: List[str]) -> Dict[str, dict]:
     """Latest 1-min bar for each ticker."""
     if not tickers:

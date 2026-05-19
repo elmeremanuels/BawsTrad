@@ -30,14 +30,16 @@ log = structlog.get_logger(__name__)
 _tasks_fired: set = set()
 
 _TASKS = {
-    (4, 0):  "universe_refresh",
-    (4, 10): "news_ingest",
-    (6, 0):  "watchlist_rank",
-    (7, 30): "learnings_review",
-    (8, 30): "perplexity_briefing",
-    (8, 45): "discord_briefing",
-    (9, 0):  "pre_exec_check",
-    (9, 25): "t5_alert",
+    (4, 0):  "universe_refresh",     # initial refresh → state/universe_today.csv
+    (4, 10): "news_ingest",           # Finnhub news for all tickers
+    (6, 0):  "watchlist_rank",        # Re-score after overnight news
+    (7, 0):  "universe_refresh_2",    # Second refresh (overnight news complete)
+    (7, 30): "learnings_review",      # Load active learnings for briefing context
+    (8, 30): "perplexity_briefing",   # Market briefing via Perplexity
+    (8, 45): "discord_briefing",      # Post briefing to Discord
+    (9, 0):  "pre_exec_check",        # Verify feeds, kill switch, account
+    (9, 20): "universe_refresh_3",    # Final refresh — latest pre-market prices
+    (9, 25): "t5_alert",              # T-5 minutes Discord alert
 }
 
 
@@ -50,23 +52,26 @@ def _due_task(now_et: datetime) -> str | None:
     return None
 
 
-async def _run_universe_refresh(state) -> None:
-    """04:00 — Run refresh_universe.py if universe_today.csv doesn't exist for today."""
-    import asyncio
-    import os
+async def _run_universe_refresh(state, force: bool = False) -> None:
+    """
+    Run refresh_universe.py to rebuild state/universe_today.csv.
+
+    force=False (default): skip if file is already fresh today (04:00 slot).
+    force=True: always re-run to get the latest prices (07:00 and 09:20 slots).
+    """
     import sys
 
-    universe_path = Path("universe_today.csv")
+    universe_path = Path("state") / "universe_today.csv"
 
-    # Skip if file already exists and was written today
-    if universe_path.exists():
+    # Skip only if not forced and file is already fresh today
+    if not force and universe_path.exists():
         mtime = datetime.fromtimestamp(universe_path.stat().st_mtime).date()
         if mtime >= date.today():
-            log.info("pre_market_prep: universe_today.csv already fresh, skipping refresh",
-                     mtime=str(mtime))
+            log.info("pre_market_prep: universe already fresh today, skipping",
+                     mtime=str(mtime), force=force)
             return
 
-    log.info("pre_market_prep: running universe refresh script")
+    log.info("pre_market_prep: running universe refresh", force=force)
     script = Path(__file__).resolve().parent.parent.parent / "scripts" / "refresh_universe.py"
 
     try:
@@ -75,20 +80,29 @@ async def _run_universe_refresh(state) -> None:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=180)
         output = stdout.decode(errors="replace").strip() if stdout else ""
-        if output:
-            for line in output.splitlines():
-                log.info("refresh_universe", output=line)
-        if proc.returncode != 0:
+        for line in (output.splitlines() if output else []):
+            log.info("refresh_universe", output=line)
+        if proc.returncode and proc.returncode != 0:
             log.warning("pre_market_prep: refresh_universe exited non-zero",
                         returncode=proc.returncode)
         else:
             log.info("pre_market_prep: universe refresh complete")
     except asyncio.TimeoutError:
-        log.warning("pre_market_prep: universe refresh timed out after 120s")
+        log.warning("pre_market_prep: universe refresh timed out after 180s")
     except Exception as exc:
         log.error("pre_market_prep: universe refresh failed", error=str(exc))
+
+
+async def _run_universe_refresh_2(state) -> None:
+    """07:00 — Second refresh after overnight news ingest completes."""
+    await _run_universe_refresh(state, force=True)
+
+
+async def _run_universe_refresh_3(state) -> None:
+    """09:20 — Final pre-open refresh with latest pre-market prices."""
+    await _run_universe_refresh(state, force=True)
 
 
 async def _run_news_ingest(state) -> None:
@@ -269,6 +283,8 @@ async def _run_t5_alert(state) -> None:
 
 _TASK_FNS = {
     "universe_refresh":    _run_universe_refresh,
+    "universe_refresh_2":  _run_universe_refresh_2,
+    "universe_refresh_3":  _run_universe_refresh_3,
     "news_ingest":         _run_news_ingest,
     "watchlist_rank":      _run_watchlist_rank,
     "learnings_review":    _run_learnings_review,

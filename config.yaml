@@ -14,7 +14,13 @@ scanner:
   gap_and_go_gap_preferred: 20.0
   gap_and_go_float_max: 50_000_000
   scan_interval_sec: 30
-  scanner_stop_hour: 10        # ET — stop pre-market scanner at this hour (was 9:35)
+  premarket_scan_interval_sec: 30
+  intraday_scan_interval_sec: 300  # refresh watchlist every 5 min during ACTIVE_TRADING
+  universe_file: "state/universe_today.csv"   # daily fresh gappers (written by refresh_universe.py)
+  universe_fallback: "small_cap_runners.csv"  # static fallback if refresh hasn't run
+  universe_gap_filter_pct: 3.0               # min gap% for daily universe (below trading threshold)
+  max_watchlist_size: 5                      # top-N candidates held in _state.watchlist
+  premarket_relvol_estimate: 5.0             # rel-vol approximation before market open (Alpaca snapshots lack this)
   require_news_catalyst: true  # Set false to allow trades without Tier A/B news (fallback)
 
 trading:
