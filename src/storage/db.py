@@ -161,5 +161,35 @@ def init_schema() -> None:
         CREATE INDEX IF NOT EXISTS idx_bars_ticker_time     ON price_bars(ticker, bar_time, timeframe);
         CREATE INDEX IF NOT EXISTS idx_overnight_ticker     ON overnight_intel(ticker);
         CREATE INDEX IF NOT EXISTS idx_overnight_fetched_at ON overnight_intel(fetched_at);
+
+        -- System 5: Funnel Tracker (AUTONOMOUS_SYSTEMS_HANDOFF.md)
+        CREATE TABLE IF NOT EXISTS funnel_daily (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            date        TEXT NOT NULL,
+            stage       TEXT NOT NULL,
+            count       INTEGER NOT NULL DEFAULT 0,
+            recorded_at TEXT NOT NULL,
+            UNIQUE(date, stage)
+        );
+        CREATE INDEX IF NOT EXISTS idx_funnel_date  ON funnel_daily(date);
+        CREATE INDEX IF NOT EXISTS idx_funnel_stage ON funnel_daily(stage);
+
+        -- System 2: Cost Tracker (AUTONOMOUS_SYSTEMS_HANDOFF.md)
+        CREATE TABLE IF NOT EXISTS cost_metrics (
+            trade_id             TEXT PRIMARY KEY,
+            snapshot_at          TEXT,
+            quote_bid_decision   REAL,
+            quote_ask_decision   REAL,
+            midpoint_decision    REAL,
+            spread_at_entry      REAL,
+            entry_fill_price     REAL,
+            entry_slippage_pct   REAL,
+            exit_fill_price      REAL,
+            exit_slippage_pct    REAL,
+            gross_profit_R       REAL,
+            total_cost_R         REAL,
+            net_profit_R         REAL,
+            FOREIGN KEY (trade_id) REFERENCES trades(id)
+        );
         """)
     print(f"Schema initialised at {DB_PATH}")
