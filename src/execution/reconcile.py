@@ -182,7 +182,7 @@ def _close_with_reason(
     exit_reason: str,
     state=None,
 ) -> None:
-    """Call close_trade() and update RiskState."""
+    """Call close_trade(), finalize cost metrics, and update RiskState."""
     from src.execution.paper import close_trade
 
     if exit_price <= 0:
@@ -192,6 +192,14 @@ def _close_with_reason(
     close_trade(trade_id, exit_price, exit_reason)
     logger.info("reconcile: closed trade %s %s exit=%.4f reason=%s",
                 trade_id, ticker, exit_price, exit_reason)
+
+    # Finalize cost metrics now that pnl_r is written
+    try:
+        from src.execution.cost_tracker import CostTracker
+        CostTracker().record_exit_fill(trade_id, exit_price)
+        CostTracker().finalize(trade_id)
+    except Exception as exc:
+        logger.debug("reconcile: cost_tracker finalize failed for %s: %s", trade_id, exc)
 
     # Update in-memory risk state if available
     if state is not None and getattr(state, "risk_state", None) is not None:

@@ -78,6 +78,14 @@ def open_long(
                     :stop_price, :target_price, :setup_type, :news_item_id, :mode)
         """, trade)
 
+    # Cost tracker: snapshot bid/ask spread at order placement
+    try:
+        from src.execution.cost_tracker import CostTracker
+        CostTracker().snapshot_pre_trade(alpaca_id, symbol)
+        CostTracker().record_entry_fill(alpaca_id, entry_price)
+    except Exception as _ct_exc:
+        logger.debug("open_long: cost_tracker snapshot failed: %s", _ct_exc)
+
     logger.info("ORDER PLACED: %s %d shares entry=%.2f stop=%.2f target=%.2f",
                 symbol, qty, entry_price, stop_price, target_price)
     return trade
