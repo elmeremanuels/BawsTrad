@@ -519,6 +519,7 @@ async def run_paper_mode(show_dashboard: bool = False) -> None:
 
     _prev_mode: Optional[Mode] = None
     eod_fired = False
+    _reconcile_cycle = 0
     try:
         while not _state.ws_stop.is_set():
             await asyncio.sleep(5)
@@ -543,6 +544,21 @@ async def run_paper_mode(show_dashboard: bool = False) -> None:
             handler = _HANDLER_MAP.get(mode)
             if handler and hasattr(handler, "tick"):
                 await handler.tick(_state, now)
+
+            # Reconcile open DB trades against Alpaca fills every ~30s during
+            # trading modes. Bracket child orders (stop/target) fill silently
+            # in Alpaca — this loop detects those fills and calls close_trade().
+            if mode in (Mode.ACTIVE_TRADING, Mode.POSITION_MGMT):
+                _reconcile_cycle += 1
+                if _reconcile_cycle % 6 == 1:   # every ~30s (6 × 5s sleep)
+                    try:
+                        from src.execution.reconcile import reconcile_open_trades
+                        closed = reconcile_open_trades(state=_state)
+                        if closed:
+                            log.info("reconcile: closed %d trade(s) this pass", closed)
+                            _log_event("reconcile", f"closed {closed} trade(s)")
+                    except Exception as _exc:
+                        log.warning("reconcile error: %s", _exc)
 
             # Force close at 15:55 (handled here regardless of mode)
             if _after_force_close(now) and not eod_fired:
