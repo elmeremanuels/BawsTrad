@@ -545,6 +545,16 @@ async def run_paper_mode(show_dashboard: bool = False) -> None:
             if handler and hasattr(handler, "tick"):
                 await handler.tick(_state, now)
 
+            # Latency health check every ~60s
+            if _reconcile_cycle % 12 == 0:
+                try:
+                    from src.execution.latency_monitor import get_monitor
+                    status = get_monitor().check_health()
+                    if status:
+                        log.debug("latency_monitor", status=status)
+                except Exception as _exc:
+                    log.debug("latency_monitor error: %s", _exc)
+
             # Reconcile open DB trades against Alpaca fills every ~30s during
             # trading modes. Bracket child orders (stop/target) fill silently
             # in Alpaca — this loop detects those fills and calls close_trade().

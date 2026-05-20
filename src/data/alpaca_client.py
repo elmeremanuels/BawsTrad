@@ -38,19 +38,31 @@ _HEADERS = {
 # ─── REST helpers ─────────────────────────────────────────────────────────────
 
 def _rest(method: str, path: str, **kwargs) -> dict:
+    import time as _time
+    from src.execution.latency_monitor import get_monitor
     url = f"{_REST_BASE}{path}"
-    with httpx.Client(headers=_HEADERS, timeout=15.0) as c:
-        r = c.request(method, url, **kwargs)
-        r.raise_for_status()
-        return r.json() if r.content else {}
+    _t0 = _time.perf_counter()
+    try:
+        with httpx.Client(headers=_HEADERS, timeout=15.0) as c:
+            r = c.request(method, url, **kwargs)
+            r.raise_for_status()
+            return r.json() if r.content else {}
+    finally:
+        get_monitor().record_ms(f"alpaca_rest_{method}", (_time.perf_counter() - _t0) * 1000)
 
 
 def _data_rest(path: str, params: Optional[dict] = None) -> dict:
+    import time as _time
+    from src.execution.latency_monitor import get_monitor
     url = f"{_DATA_BASE}{path}"
-    with httpx.Client(headers=_HEADERS, timeout=15.0) as c:
-        r = c.get(url, params=params or {})
-        r.raise_for_status()
-        return r.json()
+    _t0 = _time.perf_counter()
+    try:
+        with httpx.Client(headers=_HEADERS, timeout=15.0) as c:
+            r = c.get(url, params=params or {})
+            r.raise_for_status()
+            return r.json()
+    finally:
+        get_monitor().record_ms("alpaca_data_rest", (_time.perf_counter() - _t0) * 1000)
 
 
 # ─── Account & positions ──────────────────────────────────────────────────────
